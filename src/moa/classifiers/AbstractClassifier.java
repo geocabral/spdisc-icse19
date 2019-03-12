@@ -91,6 +91,11 @@ public abstract class AbstractClassifier extends AbstractOptionHandler
         if (this.randomSeedOption != null) {
             this.randomSeed = this.randomSeedOption.getValue();
         }
+        
+        //forces the classifier to use a random seed
+        //@ggc2
+        this.randomSeed = new Double(Math.random()*100000).intValue();
+        
         if (!trainingHasStarted()) {
             resetLearning();
         }
@@ -182,26 +187,28 @@ public abstract class AbstractClassifier extends AbstractOptionHandler
     @Override
     public Measurement[] getModelMeasurements() {
         List<Measurement> measurementList = new LinkedList<Measurement>();
-        measurementList.add(new Measurement("model training instances",
-                trainingWeightSeenByModel()));
-        measurementList.add(new Measurement("model serialized size (bytes)",
-                measureByteSize()));
+//        measurementList.add(
+//        		new Measurement("model training instances",
+//                trainingWeightSeenByModel())
+//        		);
+//        measurementList.add(new Measurement("model serialized size (bytes)",
+//                measureByteSize()));
         Measurement[] modelMeasurements = getModelMeasurementsImpl();
         if (modelMeasurements != null) {
             measurementList.addAll(Arrays.asList(modelMeasurements));
         }
-        // add average of sub-model measurements
-        Learner[] subModels = getSublearners();
-        if ((subModels != null) && (subModels.length > 0)) {
-            List<Measurement[]> subMeasurements = new LinkedList<Measurement[]>();
-            for (Learner subModel : subModels) {
-                if (subModel != null) {
-                    subMeasurements.add(subModel.getModelMeasurements());
-                }
-            }
-            Measurement[] avgMeasurements = Measurement.averageMeasurements(subMeasurements.toArray(new Measurement[subMeasurements.size()][]));
-            measurementList.addAll(Arrays.asList(avgMeasurements));
-        }
+//        // add average of sub-model measurements
+//        Learner[] subModels = getSublearners();
+//        if ((subModels != null) && (subModels.length > 0)) {
+//            List<Measurement[]> subMeasurements = new LinkedList<Measurement[]>();
+//            for (Learner subModel : subModels) {
+//                if (subModel != null) {
+//                    subMeasurements.add(subModel.getModelMeasurements());
+//                }
+//            }
+//            Measurement[] avgMeasurements = Measurement.averageMeasurements(subMeasurements.toArray(new Measurement[subMeasurements.size()][]));
+//            measurementList.addAll(Arrays.asList(avgMeasurements));
+//        }
         return measurementList.toArray(new Measurement[measurementList.size()]);
     }
 

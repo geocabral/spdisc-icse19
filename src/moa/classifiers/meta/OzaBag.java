@@ -114,8 +114,9 @@ public class OzaBag extends AbstractClassifier implements MultiClassClassifier {
 
     @Override
     protected Measurement[] getModelMeasurementsImpl() {
-        return new Measurement[]{new Measurement("ensemble size",
-                    this.ensemble != null ? this.ensemble.length : 0)};
+    	return new Measurement[]{};
+//        return new Measurement[]{new Measurement("ensemble size",
+//                    this.ensemble != null ? this.ensemble.length : 0)};
     }
 
     @Override

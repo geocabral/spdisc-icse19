@@ -32,7 +32,7 @@ public class NumericAttributeBinaryTest extends InstanceConditionalBinaryTest {
 
     private static final long serialVersionUID = 1L;
 
-    protected int attIndex;
+    public int attIndex;
 
     protected double attValue;
 

@@ -2,11 +2,13 @@ package moa.classifiers.spdisc.meta;
 
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.StringTokenizer;
 
 import org.joda.time.Days;
 import org.joda.time.Instant;
 
 import com.github.javacliparser.IntOption;
+import com.github.javacliparser.StringOption;
 import com.yahoo.labs.samoa.instances.Instance;
 
 import moa.core.Measurement;
@@ -33,13 +35,20 @@ public class WFL_OO_ORB_Oza extends OO_ORB_Oza{
 					+ "It must be an attribute index ***after*** the class attribute index.",
 			15, 0, Integer.MAX_VALUE);
 
+	//orb parameters (ws	th	l0	l1	m	n)
+	public StringOption paramORB = new StringOption("paramORB", 'p', "set all the parameters for the ORB", "100;0.4;10;12;1.5;3");
+	
 	// training examples that are waiting for waitingTime days before they are
 	// used for training
 	// PS: this is probably not the best data structure to be used here
 	protected ArrayList<Instance> trainingExamplesQueue = null;
 
+	//limit of examples with the same features so that a buggy commit is considered a noise 
+	protected int n;
+	
 	public WFL_OO_ORB_Oza() {
 		super();
+		
 		trainingExamplesQueue = new ArrayList<Instance>(waitingTime.getValue());
 	}
 
@@ -65,12 +74,9 @@ public class WFL_OO_ORB_Oza extends OO_ORB_Oza{
 					numberRepetitions++;
 				}
 			}
-			// if more than 3 instances are similar, this defective
+			// if more than n instances are similar, this defective
 			// instance is noisy and then discarded
-			if (numberRepetitions < 3) {
-				//trainInst.deleteAttributeAt(unixTimeStampIndex.getValue()); // remove the time stamp before using the example for training
-				
-				validationPool.add(trainInst.copy());
+			if (numberRepetitions < n) {
 				
 				super.trainOnInstanceImpl(trainInst);
 				
@@ -98,6 +104,7 @@ public class WFL_OO_ORB_Oza extends OO_ORB_Oza{
 
 		if(idxTimestamp == -1){
 			idxTimestamp = unixTimeStampIndex.getValue();
+			setORBParam();
 		}
 		
 		if (firstTimeStamp < 0) {
@@ -126,6 +133,19 @@ public class WFL_OO_ORB_Oza extends OO_ORB_Oza{
 		
 		return ret;
 	}
+	
+	public void setORBParam(){
+		String orbParam = paramORB.getValue();
+		
+		//orb parameters (ws	th	l0	l1	m	n)
+		StringTokenizer strTok = new StringTokenizer(orbParam, ";");
+		this.predictionsWindowSize = new Integer(strTok.nextToken());
+		this.th = new Double(strTok.nextToken());
+		this.l0 = new Double(strTok.nextToken());
+		this.l1 = new Double(strTok.nextToken());
+		this.m = new Double(strTok.nextToken());
+		this.n = new Integer(strTok.nextToken());
+	}
 
 	// inst is the current instance to be predicted. It is used here to
 	// determine which examples
@@ -146,30 +166,6 @@ public class WFL_OO_ORB_Oza extends OO_ORB_Oza{
 
 			if (daysWaited.getDays() >= waitingTime.getValue()) {
 				
-				//TODO uncomment
-				// add this instance to the validation pool
-				validationPool.addElement(trainingExampleToPop.copy());
-
-				// remove older instances from validation pool
-				int idx = 0;
-				while (idx <= (validationPool.size() - 1) && !validationPool.isEmpty()) {
-
-					Instant timePoolInstance = new Instant(
-							(long) validationPool.elementAt(idx).value(unixTimeStampIndex.getValue()) * 1000);
-
-					Days daysWaitedValPool = Days.daysBetween(timePoolInstance, timeTestingInstance);
-					// remove instances older than twice the waiting time
-					if (daysWaitedValPool.getDays() <= (2 * waitingTime.getValue())) {
-						break;
-					}
-
-					idx++;
-				}
-
-				for (int i = 0; i < idx; i++) {
-					validationPool.remove(0);
-				}
-
 				// if it is non defective instance, store in the array of non
 				// defective reference instances
 				if (trainingExampleToPop.classValue() == 0) {
@@ -225,15 +221,13 @@ public class WFL_OO_ORB_Oza extends OO_ORB_Oza{
 	@Override
 	protected Measurement[] getModelMeasurementsImpl() {
 		Measurement[] measure = super.getModelMeasurementsImpl();
-		Measurement[] measurePlus = new Measurement[measure.length + 4];
+		Measurement[] measurePlus = new Measurement[measure.length + 2];
 		for (int i = 0; i < measure.length; ++i) {
 			measurePlus[i] = measure[i];
 		}
 
 		measurePlus[measure.length] = new Measurement("training queue size", trainingExamplesQueue.size());
-		measurePlus[measure.length + 1] = new Measurement("recall0 Validation", super.recallVal0);
-		measurePlus[measure.length + 2] = new Measurement("recall1 Validation", super.recallVal1);
-		measurePlus[measure.length + 3] = new Measurement("time stamp", super.currentTimeStamp);
+		measurePlus[measure.length + 1] = new Measurement("time stamp", super.currentTimeStamp);
 
 		return measurePlus;
 

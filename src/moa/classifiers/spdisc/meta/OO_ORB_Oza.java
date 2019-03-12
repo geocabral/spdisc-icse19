@@ -30,6 +30,15 @@ import moa.core.MiscUtils;
 
 public class OO_ORB_Oza extends OzaBag{
 
+	
+	//orb parameters (ws	th	l0	l1	m	n)
+	public int predictionsWindowSize;
+	public double th;
+	public double l0;
+	public double l1;
+	public double m;
+	
+	
 	//the index of the time stamp. Assigned in the child class (WFL_OO_ORB)
 	public int idxTimestamp = -1;
 	
@@ -55,17 +64,11 @@ public class OO_ORB_Oza extends OzaBag{
 	// array for early stoping the obf adjustment
 	public ArrayList<Integer> pastPredictions = new ArrayList<>();
 
-	// last n models that comprise the number of days to the backtrack model
-	public Vector<Classifier[]> poolModels = new Vector<>();
-
 	// last n instances that comprise the instances seen at the moment of each
 	// model in the poolModels
 	public HashMap<Integer, Vector<Instance>> poolLastInstances = new HashMap<>();
 
 	public double[] votes = { 0.0, 0.0 };
-
-	public double recallVal0 = 0;
-	public double recallVal1 = 0;
 
 	public int ctInstances = 0;
 
@@ -74,28 +77,20 @@ public class OO_ORB_Oza extends OzaBag{
 
 	public long currentTimeStamp = 0l;
 
-	public Vector<Instance> validationPool = new Vector<>();
-
 	public int idxTr = 0;
 
 	private static final long serialVersionUID = 1L;
 
 	public FloatOption theta = new FloatOption("theta", 't', "The time decay factor for class size.", 0.9, 0, 1);
 
-//	// the days in the past to which the model will be recovered to tackle the
-//	// class bias problem
-//	public IntOption storedDaysRetraining = new IntOption("storedDaysRetraining", 'r',
-//			"The number of days stored in a pool of instances for retraining to recovery from overfitting the minority class.",
-//			5, 1, Integer.MAX_VALUE);
-
 	public StringOption classifierOption = new StringOption("classifierOption", 'c',
-			"Specific options for the used classifier.", "-m OzaBag -s 20 -l trees.HoeffdingTree");
+			"Specific options for the used classifier.", "-m OzaBag -s 20");
 
 	protected double classSize[]; // time-decayed size of each class
 
 	@Override
 	public String getPurposeString() {
-		return "Oversampling on-line bagging of Wang et al IJCAI 2016.";
+		return "Oversampling on-line Oversampling Rate Boosting Cabral et. al. ICSE'19.";
 	}
 
 	public OO_ORB_Oza() {
@@ -131,7 +126,6 @@ public class OO_ORB_Oza extends OzaBag{
 		inst.deleteAttributeAt(idxTimestamp); // remove the time
 															// stamp before
 															// using the
-		boolean print = false;
 		
 		for (int i = 0; i < this.ensemble.length; i++) {
 
@@ -143,22 +137,9 @@ public class OO_ORB_Oza extends OzaBag{
 			}
 
 			if (inst.classValue() == 0 && obf < -1) {
-
 				k *= -obf;
-				
 			}
 			
-			if(inst.classValue() ==0){
-				kndef+=k;
-			}else{
-				kdef+=k;
-			}
-			
-			if(print){
-				System.out.println("obf: "+ obf+" k:"+ k+" class: "+inst.classValue()+" idxTr: "+idxTr+" k ("+kndef+","+kdef+") ");
-				print = false;
-			}
-
 			if (k > 0) {
 				Instance weightedInst = (Instance) inst.copy();
 				weightedInst.setWeight(inst.weight() * k);
@@ -183,8 +164,6 @@ public class OO_ORB_Oza extends OzaBag{
 		
 		return average;
 	}
-
-
 	
 	
 	public double getOBFPredAvg() {
@@ -192,31 +171,25 @@ public class OO_ORB_Oza extends OzaBag{
 		double obf = 1;
 
 		Double average = pastPredictions.stream().mapToInt(val -> val).average().orElse(0.0);
-
-		double threshold = 0.4;
+		double avgAux = average.doubleValue();
+		double threshold = th;
+		double y = m;
 		
+		//boost class 1
 		if (average < threshold) {
-			
-			double y = 1.5;
-			
 			average = Math.abs(average - threshold);
+			obf = ((Math.pow(y,(average*10))-1)/(Math.pow(y,threshold*10) - 1)*l1)+1;
 			
-			obf = ((Math.pow(y,(average*10))-1)/(Math.pow(y,threshold*10) - 1)*12.)+1;
-			
-			
+		//boost class 0	
 		} else {
-
-			double y = 1.5;
-			
-			obf = ((Math.pow(y,(average*10))-Math.pow(y,(threshold*10)))/(Math.pow(y,(10)) - Math.pow(y,(threshold * 10)))*10)+1;
-			
-			
+			obf = ((Math.pow(y,(average*10))-Math.pow(y,(threshold*10)))/(Math.pow(y,(10)) - Math.pow(y,(threshold * 10)))*l0)+1;
 			obf = obf * -1;
 		}
 
 		if(Math.abs(obf) < 1){
 			obf = 1;
 		}
+		
 		
 		return obf;
 	}
@@ -233,7 +206,7 @@ public class OO_ORB_Oza extends OzaBag{
 				pastPredictions.add(1);
 			}
 
-			if (pastPredictions.size() > 100) {
+			if (pastPredictions.size() > predictionsWindowSize) {
 				pastPredictions.remove(0);
 			}
 		}
@@ -330,7 +303,7 @@ public class OO_ORB_Oza extends OzaBag{
 		Measurement[] measurePlus = null;
 
 		if (classSize != null) {
-			measurePlus = new Measurement[measure.length + classSize.length + 2];
+			measurePlus = new Measurement[measure.length + classSize.length];
 
 			for (int i = 0; i < measure.length; ++i) {
 				measurePlus[i] = measure[i];
@@ -341,13 +314,10 @@ public class OO_ORB_Oza extends OzaBag{
 				measurePlus[measure.length + i] = new Measurement(str, classSize[i]);
 			}
 
-			for (int i = 0; i < classSize.length; ++i) {
-				String str = "vote for class " + i;
-				measurePlus[measure.length + 2 + i] = new Measurement(str, vote[i]);
-			}
+			
 
 		} else {
-			measurePlus = new Measurement[measure.length + 4];
+			measurePlus = new Measurement[measure.length + 2];
 			for (int i = 0; i < measure.length; ++i) {
 				measurePlus[i] = measure[i];
 			}
@@ -357,10 +327,7 @@ public class OO_ORB_Oza extends OzaBag{
 				measurePlus[measure.length + i] = new Measurement(str, 0);
 			}
 
-			for (int i = 0; i < 2; ++i) {
-				String str = "vote for class " + i;
-				measurePlus[measure.length + 2 + i] = new Measurement(str, votes[i]);
-			}
+			
 		}
 		// measurePlus = measure;
 
