@@ -168,32 +168,10 @@ public class WFL_OO_ORB_Oza extends OO_ORB_Oza{
 				
 				// if it is non defective instance, store in the array of non
 				// defective reference instances
-				if (trainingExampleToPop.classValue() == 0) {
-					pastNonDefectiveInstances.add(trainingExampleToPop.copy());
-					super.trainOnInstanceImpl(trainingExampleToPop);
-					trainingExamplesQueue.remove(0);
-				} else {
-					
-					// check how many non defective instances are similar to the
-					// current defective instance
-					int numberRepetitions = 0;
-					for (int i = 0; i < pastNonDefectiveInstances.size(); i++) {
-						if (isSameInstance(trainingExampleToPop, pastNonDefectiveInstances.get(i))) {
-							numberRepetitions++;
-						}
-					}
-					// if more than 3 instances are similar, this defective
-					// instance is noisy and then discarded
-					if (numberRepetitions < 3) {
-						super.trainOnInstanceImpl(trainingExampleToPop);
-						trainingExamplesQueue.remove(0);
-					}else{
-						trainingExamplesQueue.remove(0);
-						idxTr++;
-					}
-				
-					
-				}
+				pastNonDefectiveInstances.add(trainingExampleToPop.copy());
+				super.trainOnInstanceImpl(trainingExampleToPop);
+				trainingExamplesQueue.remove(0);
+				 
 			} else { // if the current training example has less than
 						// waitingTime, all examples after it will also have.
 						// So, we can return.

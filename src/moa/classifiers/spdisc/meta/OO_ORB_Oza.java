@@ -15,10 +15,17 @@ package moa.classifiers.spdisc.meta;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Random;
 import java.util.StringTokenizer;
 import java.util.Vector;
 
+import org.joda.time.Days;
+import org.joda.time.Instant;
+import org.joda.time.ReadableInstant;
+
 import com.github.javacliparser.FloatOption;
+import com.github.javacliparser.IntOption;
 import com.github.javacliparser.StringOption;
 import com.yahoo.labs.samoa.instances.Instance;
 
@@ -48,17 +55,9 @@ public class OO_ORB_Oza extends OzaBag{
 	//the defective class in the begining of the  string
 	public ArrayList<Instance> poolInitialDefectiveInstances = new ArrayList<>();
 
-	int kdef = 0;
-	int kndef =0;
-	
-	// irrespective to the class, indicates if a defect was detected (TP or FP)
-	// used only to store information about the current prediction in the CSV
-	// output file
-	public double[] vote;
-	
 	// this array stores the non defective instances that are used to be
 	// compared to each defective instance during the training
-	// time in order to check whether the defective instance is noisy or not.
+	// time in order to check whether the defective instfance is noisy or not.
 	public ArrayList<Instance> pastNonDefectiveInstances = new ArrayList<>();
 
 	// array for early stoping the obf adjustment
@@ -68,16 +67,14 @@ public class OO_ORB_Oza extends OzaBag{
 	// model in the poolModels
 	public HashMap<Integer, Vector<Instance>> poolLastInstances = new HashMap<>();
 
-	public double[] votes = { 0.0, 0.0 };
-
-	public int ctInstances = 0;
+	public Vector<Classifier[]> poolModels = new Vector();
+	
+	public int ctInstancesSeen = 0;
 
 	// time stamp of the first day of the stream
 	protected long firstTimeStamp = -100;
 
 	public long currentTimeStamp = 0l;
-
-	public int idxTr = 0;
 
 	private static final long serialVersionUID = 1L;
 
@@ -86,6 +83,8 @@ public class OO_ORB_Oza extends OzaBag{
 	public StringOption classifierOption = new StringOption("classifierOption", 'c',
 			"Specific options for the used classifier.", "-m OzaBag -s 20");
 
+	public IntOption storedDaysRetraining = new IntOption("storedDaysRetraining", 'r', "The number of days stored in a pool of instances for retraining to recovery from overfitting the minority class.", 5, 1, Integer.MAX_VALUE);
+	
 	protected double classSize[]; // time-decayed size of each class
 
 	@Override
@@ -119,6 +118,8 @@ public class OO_ORB_Oza extends OzaBag{
 	
 	public void trainModel(Instance inst) {
 		
+		this.updatePoolLastInstances(inst.copy());
+		
 		updateClassSize(inst);
 		
 		double obf = getOBFPredAvg();
@@ -148,16 +149,8 @@ public class OO_ORB_Oza extends OzaBag{
 			}
 		}
 
-		if (inst.classValue() == 0) {
-			idxTr++;
-		}
-
 	}
 	
-	
-
-	
-
 	
 	public double getPredAvg() {
 		Double average = pastPredictions.stream().mapToInt(val -> val).average().orElse(0.0);
@@ -170,8 +163,7 @@ public class OO_ORB_Oza extends OzaBag{
 
 		double obf = 1;
 
-		Double average = pastPredictions.stream().mapToInt(val -> val).average().orElse(0.0);
-		double avgAux = average.doubleValue();
+		Double average = getPredAvg();
 		double threshold = th;
 		double y = m;
 		
@@ -189,7 +181,6 @@ public class OO_ORB_Oza extends OzaBag{
 		if(Math.abs(obf) < 1){
 			obf = 1;
 		}
-		
 		
 		return obf;
 	}
@@ -211,39 +202,71 @@ public class OO_ORB_Oza extends OzaBag{
 			}
 		}
 
-		ctInstances++;
-
-		vote = new double[2];
-
-		if (combinedVote.length == 2 && combinedVote[1] > combinedVote[0]) {
-			vote[0] = 0;
-			vote[1] = 1;
-		} else {
-			vote[0] = 1;
-			vote[1] = 0;
-		}
+		if (this.getPredAvg() >= 0.8) {
+            Classifier[] classifier = this.poolModels.firstElement();
+            for (Vector<Instance> v : this.poolLastInstances.values()) {
+                for (Instance in : v) {
+                    this.trainOnOldInstance(in.copy(), classifier);
+                }
+            }
+            this.ensemble = (Classifier[])classifier.clone();
+        }
+		
+		ctInstancesSeen++;
 
 		return combinedVote;
 	}
+	
+	public void trainOnOldInstance(Instance inst, Classifier[] oldModel) {
+        double lambda = this.calculatePoissonLambda(inst);
+        inst.deleteAttributeAt(idxTimestamp);
+        for (int i = 0; i < oldModel.length; ++i) {
+            int k = MiscUtils.poisson((double)lambda, (Random)this.classifierRandom);
+            if (inst.classValue() == 0.0) {
+                k = MiscUtils.poisson((double)1.0, (Random)this.classifierRandom);
+            }
+            if (k <= 0) continue;
+            Instance weightedInst = inst.copy();
+            weightedInst.setWeight(inst.weight() * (double)k);
+            oldModel[i].trainOnInstance(weightedInst);
+        }
+    }
 
+	private void updatePoolLastInstances(Instance inst) {
+        Instant timeFirstExampleStream = new Instant(this.firstTimeStamp * 1000L);
+        
+        Instance instCopy = inst.copy();
+        
+        Instant timeTestingExample = new Instant((long)instCopy.value(idxTimestamp) * 1000L);
+        
+        Days daysPassedFromBegin = Days.daysBetween((ReadableInstant)timeFirstExampleStream, (ReadableInstant)timeTestingExample);
+        
+        if (!this.poolLastInstances.containsKey(daysPassedFromBegin.getDays())) {
+            Vector<Instance> vet = new Vector<Instance>();
+        
+            vet.add(instCopy);
+            
+            this.poolLastInstances.put(daysPassedFromBegin.getDays(), vet);
+            
+            this.poolModels.add((Classifier[])this.ensemble.clone());
+            
+            if (this.poolLastInstances.size() > this.storedDaysRetraining.getValue()) {
+                int olderSetInstances = 1000000;
+                Iterator<Integer> iterator = this.poolLastInstances.keySet().iterator();
+                while (iterator.hasNext()) {
+                    int i = iterator.next();
+                    if (i >= olderSetInstances) continue;
+                    olderSetInstances = i;
+                }
+                this.poolLastInstances.remove(olderSetInstances);
+                this.poolModels.remove(0);
+            }
+        } else {
+            this.poolLastInstances.get(daysPassedFromBegin.getDays()).add(instCopy);
+        }
+    }
 
-
-	public double[] getVotes(Instance inst) {
-		DoubleVector combinedVote = new DoubleVector();
-
-		Classifier[] arrCls = this.ensemble;
-
-		for (int i = 0; i < arrCls.length; i++) {
-
-			DoubleVector vote = new DoubleVector(arrCls[i].getVotesForInstance(inst));
-			if (vote.sumOfValues() > 0.0) {
-				vote.normalize();
-				combinedVote.addValues(vote);
-			}
-		}
-		return combinedVote.getArrayRef();
-	}
-
+	
 	protected void updateClassSize(Instance inst) {
 		if (this.classSize == null) {
 			classSize = new double[inst.numClasses()];
@@ -341,40 +364,3 @@ public class OO_ORB_Oza extends OzaBag{
 
 }
 
-class OptionsClassifier {
-
-	public int getIntOption(char identifier, String opts) {
-
-		int ret = 0;
-		StringTokenizer strTok = new StringTokenizer(opts);
-
-		while (strTok.hasMoreTokens()) {
-			String s = strTok.nextToken();
-
-			if (s.equals("-" + identifier)) {
-				ret = new Integer(strTok.nextToken());
-				break;
-			}
-		}
-
-		return ret;
-	}
-
-	public String getStringOption(char identifier, String opts) {
-
-		String ret = "";
-		StringTokenizer strTok = new StringTokenizer(opts);
-
-		while (strTok.hasMoreTokens()) {
-			String s = strTok.nextToken();
-
-			if (s.equals("-" + identifier)) {
-				ret = strTok.nextToken();
-				break;
-			}
-		}
-
-		return ret;
-	}
-
-}
