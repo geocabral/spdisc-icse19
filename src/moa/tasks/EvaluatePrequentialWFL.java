@@ -302,10 +302,6 @@ public class EvaluatePrequentialWFL extends ClassificationMainTask {
 				((Instance) trainInst.getData()).setClassValue(1);
 				learner.trainOnInstance(trainInst);
 
-				if (learner instanceof moa.classifiers.spdisc.meta.WFL_OO_ORB_Oza && bugsForAddTrainingORB > 0) {
-					((moa.classifiers.spdisc.meta.WFL_OO_ORB_Oza) learner).idxTr++;
-					bugsForAddTrainingORB--;
-				}
 
 				write_results = false;
 			}
