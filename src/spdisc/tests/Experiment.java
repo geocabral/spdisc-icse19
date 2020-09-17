@@ -36,12 +36,8 @@ public class Experiment {
 		String[] datasetsArray = { "fabric", "jgroups", "camel", "tomcat", "brackets", "neutron", "spring-integration",
 				"broadleaf", "nova", "npm" };
 		
-		//String task = "EvaluatePrequentialWFL -l (spdisc.meta.WFL_OO_ORB_Oza -i 15 -s 20 -t 0.99 -w 90 -p "+paramsORB+" )  -s  (ArffFileStream -f (/rds/projects/2018/minkull-spdisc/gomescag/icse19/binSensAnalysis/datasets/"+datasetsArray[dsIdx]+".arff) -c 15) -e (FadingFactorEachClassPerformanceEvaluator -a 0.99) -f 1 -d /rds/projects/2018/minkull-spdisc/gomescag/icse19/binSensAnalysis/results/"+datasetsArray[dsIdx]+"("+paramsORB.replaceAll(";", "-")+")-"+arrId+".csv";
-		
 		String task = "EvaluatePrequentialWFL -l (spdisc.meta.WFL_OO_ORB_Oza -i 15 -t 0.99 -p "+paramsORB+")  -s  (ArffFileStream -f (datasets/"+datasetsArray[dsIdx]+".arff) -c 15) -e (FadingFactorEachClassPerformanceEvaluator -a 0.99) -f 1 -d results/"+datasetsArray[dsIdx]+"("+paramsORB.replaceAll(";", "-")+")-"+arrId+".csv";
 		
-		//String task = "EvaluatePrequentialWFL -l (spdisc.meta.WFL_OO_ORB_Oza -i 15 -s 20 -t 0.99 -w 90 -o teste )  -s  (ArffFileStream -f (datasets/"+dataset+".arff) -c 15) -e (FadingFactorEachClassPerformanceEvaluator -a 0.99) -f 1 -d results/"+dataset+"(i15s20t0.99)-1.csv";
-
 		try {
 
 			System.out.println(task);
