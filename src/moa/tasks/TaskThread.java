@@ -78,6 +78,7 @@ public class TaskThread extends Thread {
             this.currentStatus = this.taskMonitor.isCancelled() ? Status.CANCELLED
                     : Status.COMPLETED;
         } catch (Throwable ex) {
+        	ex.printStackTrace();
             this.currentStatus = Status.FAILED;
             this.finalResult = new FailedTaskReport(ex);
         }

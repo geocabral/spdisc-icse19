@@ -25,8 +25,15 @@
 package moa.tasks;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.math.BigDecimal;
+import java.text.DecimalFormat;
+import java.util.HashMap;
+import java.util.OptionalDouble;
+import java.util.Vector;
 
 import com.github.javacliparser.FileOption;
 import com.github.javacliparser.FloatOption;
@@ -36,14 +43,12 @@ import com.yahoo.labs.samoa.instances.Instance;
 
 import moa.classifiers.MultiClassClassifier;
 import moa.core.Example;
-import moa.core.Measurement;
 import moa.core.ObjectRepository;
 import moa.core.TimingUtils;
 import moa.core.Utils;
 import moa.evaluation.EWMAClassificationPerformanceEvaluator;
 import moa.evaluation.FadingFactorClassificationPerformanceEvaluator;
 import moa.evaluation.LearningCurve;
-import moa.evaluation.LearningEvaluation;
 import moa.evaluation.LearningPerformanceEvaluator;
 import moa.evaluation.WindowClassificationPerformanceEvaluator;
 import moa.learners.Learner;
@@ -60,7 +65,12 @@ import moa.streams.ExampleStream;
  */
 public class EvaluatePrequentialWFL extends ClassificationMainTask {
 
-	public int bugsForAddTrainingORB = 0;
+	private static HashMap<String, Object> hashResults = new HashMap<>();
+	private static final String RES_INSTANCE_CLASS = "instanceClass";
+	private static final String RES_INSTANCE_PREDICTION = "instancePrediction";
+	private static final String RES_RECALL_0 = "recall_0";
+	private static final String RES_RECALL_1 = "recall_1";
+	private static final String RES_TS = "timestamp";
 
 	@Override
 	public String getPurposeString() {
@@ -129,26 +139,14 @@ public class EvaluatePrequentialWFL extends ClassificationMainTask {
 				this.evaluatorOption);
 		LearningCurve learningCurve = new LearningCurve("learning evaluation instances");
 
+		//hash containing the results to be dumped to a file at the end
+		hashResults.put(RES_INSTANCE_CLASS, new Vector<Integer>());
+		hashResults.put(RES_INSTANCE_PREDICTION, new Vector<Integer>());
+		hashResults.put(RES_RECALL_0, new Vector<Double>());
+		hashResults.put(RES_RECALL_1, new Vector<Double>());
+		hashResults.put(RES_TS, new Vector<String>());
+
 		// New for prequential methods
-		if (evaluator instanceof WindowClassificationPerformanceEvaluator) {
-			// ((WindowClassificationPerformanceEvaluator)
-			// evaluator).setWindowWidth(widthOption.getValue());
-			if (widthOption.getValue() != 1000) {
-				System.out
-						.println("DEPRECATED! Use EvaluatePrequential -e (WindowClassificationPerformanceEvaluator -w "
-								+ widthOption.getValue() + ")");
-				return learningCurve;
-			}
-		}
-		if (evaluator instanceof EWMAClassificationPerformanceEvaluator) {
-			// ((EWMAClassificationPerformanceEvaluator)
-			// evaluator).setalpha(alphaOption.getValue());
-			if (alphaOption.getValue() != .01) {
-				System.out.println("DEPRECATED! Use EvaluatePrequential -e (EWMAClassificationPerformanceEvaluator -a "
-						+ alphaOption.getValue() + ")");
-				return learningCurve;
-			}
-		}
 		if (evaluator instanceof FadingFactorClassificationPerformanceEvaluator) {
 			// ((FadingFactorClassificationPerformanceEvaluator)
 			// evaluator).setalpha(alphaOption.getValue());
@@ -168,19 +166,6 @@ public class EvaluatePrequentialWFL extends ClassificationMainTask {
 		int secondsElapsed = 0;
 		monitor.setCurrentActivity("Evaluating learner...", -1.0);
 
-		File dumpFile = this.dumpFileOption.getFile();
-		PrintStream immediateResultStream = null;
-		if (dumpFile != null) {
-			try {
-				if (dumpFile.exists()) {
-					immediateResultStream = new PrintStream(new FileOutputStream(dumpFile, true), true);
-				} else {
-					immediateResultStream = new PrintStream(new FileOutputStream(dumpFile), true);
-				}
-			} catch (Exception ex) {
-				throw new RuntimeException("Unable to open immediate result file: " + dumpFile, ex);
-			}
-		}
 		// File for output predictions
 		File outputPredictionFile = this.outputPredictionFileOption.getFile();
 		PrintStream outputPredictionResultStream = null;
@@ -196,12 +181,7 @@ public class EvaluatePrequentialWFL extends ClassificationMainTask {
 				throw new RuntimeException("Unable to open prediction result file: " + outputPredictionFile, ex);
 			}
 		}
-		boolean firstDump = true;
-		boolean preciseCPUTiming = TimingUtils.enablePreciseTiming();
-		long evaluateStartTime = TimingUtils.getNanoCPUTimeOfCurrentThread();
-		long lastEvaluateStartTime = evaluateStartTime;
-		double RAMHours = 0.0;
-
+		
 		while (stream.hasMoreInstances() && ((maxInstances < 0) || (instancesProcessed < maxInstances))
 				&& ((maxSeconds < 0) || (secondsElapsed < maxSeconds))) {
 
@@ -216,9 +196,21 @@ public class EvaluatePrequentialWFL extends ClassificationMainTask {
 			((Instance) trainInst.getData()).deleteAttributeAt(16);
 			((Instance) testInst.getData()).deleteAttributeAt(16);
 
+			int predictedClass = 0;
+
 			if (commit_type == NOT_BUG) {
 
 				double[] prediction = learner.getVotesForInstance(testInst);
+
+				if (prediction.length > 1) {
+					if (prediction[0] > prediction[1]) {
+						predictedClass = 0;
+					} else {
+						predictedClass = 1;
+					}
+				} else {
+					predictedClass = 0;
+				}
 
 				// Output prediction
 				if (outputPredictionFile != null) {
@@ -239,6 +231,16 @@ public class EvaluatePrequentialWFL extends ClassificationMainTask {
 
 				((Instance) testInst.getData()).setClassValue(1);
 				double[] prediction = learner.getVotesForInstance(testInst);
+
+				if (prediction.length > 1) {
+					if (prediction[0] > prediction[1]) {
+						predictedClass = 0;
+					} else {
+						predictedClass = 1;
+					}
+				} else {
+					predictedClass = 0;
+				}
 
 				// Output prediction
 				if (outputPredictionFile != null) {
@@ -261,6 +263,16 @@ public class EvaluatePrequentialWFL extends ClassificationMainTask {
 				((Instance) testInst.getData()).setClassValue(1);
 				double[] prediction = learner.getVotesForInstance(testInst);
 
+				if (prediction.length > 1) {
+					if (prediction[0] > prediction[1]) {
+						predictedClass = 0;
+					} else {
+						predictedClass = 1;
+					}
+				} else {
+					predictedClass = 0;
+				}
+
 				// Output prediction
 				if (outputPredictionFile != null) {
 					int trueClass = (int) ((Instance) trainInst.getData()).classValue();
@@ -269,39 +281,13 @@ public class EvaluatePrequentialWFL extends ClassificationMainTask {
 							+ (((Instance) testInst.getData()).classIsMissing() == true ? " ? " : trueClass));
 				}
 
-				// evaluator.addClassificationAttempt(trueClass, prediction,
-				// testInst.weight());
 				evaluator.addResult(testInst, prediction);
-
-				bugsForAddTrainingORB++;
-
-				// ((Instance) testInst.getData()).setClassValue(0);
-				// learner.trainOnInstance(trainInst);
 			}
 
 			if (commit_type == BUG_FOUND) {
 
-				// ((Instance) testInst.getData()).setClassValue(1);
-				// double[] prediction = learner.getVotesForInstance(testInst);
-				//
-				// // Output prediction
-				// if (outputPredictionFile != null) {
-				// int trueClass = (int) ((Instance)
-				// trainInst.getData()).classValue();
-				//
-				// outputPredictionResultStream.println(Utils.maxIndex(prediction)
-				// + ","
-				// + (((Instance) testInst.getData()).classIsMissing() == true ?
-				// " ? " : trueClass));
-				// }
-				//
-				// // evaluator.addClassificationAttempt(trueClass, prediction,
-				// // testInst.weight());
-				// evaluator.addResult(testInst, prediction);
-
 				((Instance) trainInst.getData()).setClassValue(1);
 				learner.trainOnInstance(trainInst);
-
 
 				write_results = false;
 			}
@@ -310,62 +296,90 @@ public class EvaluatePrequentialWFL extends ClassificationMainTask {
 				instancesProcessed++;
 				if (instancesProcessed % this.sampleFrequencyOption.getValue() == 0
 						|| stream.hasMoreInstances() == false) {
-					long evaluateTime = TimingUtils.getNanoCPUTimeOfCurrentThread();
-					double time = TimingUtils.nanoTimeToSeconds(evaluateTime - evaluateStartTime);
-					double timeIncrement = TimingUtils.nanoTimeToSeconds(evaluateTime - lastEvaluateStartTime);
-					double RAMHoursIncrement = learner.measureByteSize() / (1024.0 * 1024.0 * 1024.0); // GBs
-					RAMHoursIncrement *= (timeIncrement / 3600.0); // Hours
-					RAMHours += RAMHoursIncrement;
-					lastEvaluateStartTime = evaluateTime;
-					learningCurve.insertEntry(new LearningEvaluation(
-							new Measurement[] { new Measurement("learning evaluation instances", instancesProcessed)
-							// ,
-							// new Measurement(
-							// "evaluation time ("
-							// + (preciseCPUTiming ? "cpu "
-							// : "") + "seconds)",
-							// time),
-							// new Measurement(
-							// "model cost (RAM-Hours)",
-							// RAMHours)
-							}, evaluator, learner));
 
-					if (immediateResultStream != null) {
-						if (firstDump) {
-							immediateResultStream.println(learningCurve.headerToString());
-							firstDump = false;
-						}
-						immediateResultStream.println(learningCurve.entryToString(learningCurve.numEntries() - 1));
-						immediateResultStream.flush();
+					String ts = (((Instance) testInst.getData()).value(15) + "");
+					int idxE = ts.indexOf("E");
+					
+					ts = new BigDecimal(((Instance) testInst.getData()).value(15) + "").intValue()+"";
+					
+					if(idxE > 0){
+						
+						((Vector<String>) hashResults.get(RES_TS))
+								.add(ts);
+						
+						((Vector<Integer>) hashResults.get(RES_INSTANCE_CLASS))
+								.add(new Double(((Instance) testInst.getData()).classValue()).intValue());
+						((Vector<Integer>) hashResults.get(RES_INSTANCE_PREDICTION)).add(predictedClass);
+						((Vector<Double>) hashResults.get(RES_RECALL_0))
+								.add(evaluator.getPerformanceMeasurements()[7].getValue());
+						((Vector<Double>) hashResults.get(RES_RECALL_1))
+								.add(evaluator.getPerformanceMeasurements()[8].getValue());	
+							
 					}
+
 				}
 			}
+			
+		}
 
-			if (instancesProcessed % INSTANCES_BETWEEN_MONITOR_UPDATES == 0) {
-				if (monitor.taskShouldAbort()) {
-					return null;
-				}
-				long estimatedRemainingInstances = stream.estimatedRemainingInstances();
-				if (maxInstances > 0) {
-					long maxRemaining = maxInstances - instancesProcessed;
-					if ((estimatedRemainingInstances < 0) || (maxRemaining < estimatedRemainingInstances)) {
-						estimatedRemainingInstances = maxRemaining;
-					}
-				}
-				monitor.setCurrentActivityFractionComplete(estimatedRemainingInstances < 0 ? -1.0
-						: (double) instancesProcessed / (double) (instancesProcessed + estimatedRemainingInstances));
-				if (monitor.resultPreviewRequested()) {
-					monitor.setLatestResultPreview(learningCurve.copy());
-				}
-				secondsElapsed = (int) TimingUtils
-						.nanoTimeToSeconds(TimingUtils.getNanoCPUTimeOfCurrentThread() - evaluateStartTime);
+
+		// print output file
+		String filePath = dumpFileOption.getValue();
+		try (PrintWriter writer = new PrintWriter(new File(filePath))) {
+
+			
+			StringBuilder sb = new StringBuilder();
+			sb.append("instance class;");
+			sb.append("predicted class;");
+			sb.append("recall(0);");
+			sb.append("recall(1);");
+			sb.append("timestamp \n");
+			
+			for(int i = 0; i < ((Vector<Integer>) hashResults.get(RES_INSTANCE_CLASS)).size(); i++){
+				sb.append(((Vector<Integer>) hashResults.get(RES_INSTANCE_CLASS)).get(i)+";");
+				sb.append(((Vector<Integer>) hashResults.get(RES_INSTANCE_PREDICTION)).get(i)+";");
+				sb.append(((Vector<Double>) hashResults.get(RES_RECALL_0)).get(i)+";");
+				sb.append(((Vector<Double>) hashResults.get(RES_RECALL_1)).get(i)+";");
+				sb.append(((Vector<String>) hashResults.get(RES_TS)).get(i)+"\n");
 			}
-		}
-		if (immediateResultStream != null) {
-			immediateResultStream.close();
-		}
-		if (outputPredictionResultStream != null) {
-			outputPredictionResultStream.close();
+			
+			writer.write(sb.toString());
+
+			//compute summary of the results
+			OptionalDouble averageRec0 = ((Vector<Double>) hashResults.get(RES_RECALL_0)).stream()
+		            .mapToDouble(a -> a)
+		            .average();
+			
+			OptionalDouble averageRec1 = ((Vector<Double>) hashResults.get(RES_RECALL_1)).stream()
+		            .mapToDouble(a -> a)
+		            .average();
+			
+			//compute gmean and difference between recalls
+			
+			double avg_gmean = 0.;
+			double avg_diffRecalls = 0.;
+			
+			for(int i = 0; i < ((Vector<Double>) hashResults.get(RES_RECALL_1)).size(); i++){
+				avg_gmean += Math.sqrt(((Vector<Double>) hashResults.get(RES_RECALL_1)).get(i) * ((Vector<Double>) hashResults.get(RES_RECALL_0)).get(i));
+				avg_diffRecalls += Math.abs(((Vector<Double>) hashResults.get(RES_RECALL_1)).get(i) - ((Vector<Double>) hashResults.get(RES_RECALL_0)).get(i));
+			}
+			
+			avg_diffRecalls /= ((Vector<Double>) hashResults.get(RES_RECALL_1)).size();
+			avg_gmean /= ((Vector<Double>) hashResults.get(RES_RECALL_1)).size();
+			
+			DecimalFormat df = new DecimalFormat("#0.00");  
+		    
+			System.out.println("\nResults*******\n");
+			System.out.println("Tested Instances: "+ ((Vector<Double>) hashResults.get(RES_RECALL_1)).size());
+			System.out.println("Average Recall(0): "+df.format(averageRec0.getAsDouble()));
+			System.out.println("Average Recall(1): "+df.format(averageRec1.getAsDouble()));
+			System.out.println("Average Diff_recalls: "+df.format(avg_diffRecalls));
+			System.out.println("Average Gmean between recalls: "+df.format(avg_gmean));
+			
+			
+			
+		} catch (FileNotFoundException e) {
+			System.out.println(e.getMessage());
 		}
 
 		return learningCurve;

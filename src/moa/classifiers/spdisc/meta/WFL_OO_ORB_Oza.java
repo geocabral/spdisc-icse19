@@ -15,6 +15,9 @@ import moa.core.Measurement;
 
 public class WFL_OO_ORB_Oza extends OO_ORB_Oza{
 
+	
+	double[] votes = null;
+	
 	@Override
 	public String getPurposeString() {
 		return "Variation of oversampling on-line bagging of Wang et al IJCAI 2016 to use an example for training only once "
@@ -131,6 +134,24 @@ public class WFL_OO_ORB_Oza extends OO_ORB_Oza{
 
 		double[] ret = super.getVotesForInstance(instTmp); 
 		
+		if(votes == null){
+			votes = new double[2];
+		}else{
+			if(ret.length>1){
+				if(ret[0] > ret[1]){
+					votes[0] = 1;
+					votes[1] = 0;	
+				}else{
+					votes[0] = 0;
+					votes[1] = 1;
+				}
+				
+			}else{
+				votes[0] = 1;
+				votes[1] = 0;
+			}
+		}
+		
 		return ret;
 	}
 	
@@ -199,13 +220,15 @@ public class WFL_OO_ORB_Oza extends OO_ORB_Oza{
 	@Override
 	protected Measurement[] getModelMeasurementsImpl() {
 		Measurement[] measure = super.getModelMeasurementsImpl();
-		Measurement[] measurePlus = new Measurement[measure.length + 2];
+		Measurement[] measurePlus = new Measurement[measure.length + 4];
 		for (int i = 0; i < measure.length; ++i) {
 			measurePlus[i] = measure[i];
 		}
 
-		measurePlus[measure.length] = new Measurement("training queue size", trainingExamplesQueue.size());
-		measurePlus[measure.length + 1] = new Measurement("time stamp", super.currentTimeStamp);
+		measurePlus[measure.length] = new Measurement("vote 0", votes[0]);
+		measurePlus[measure.length + 1] = new Measurement("vote 1", votes[1]);
+		measurePlus[measure.length + 2] = new Measurement("training queue size", trainingExamplesQueue.size());
+		measurePlus[measure.length + 3] = new Measurement("time stamp", super.currentTimeStamp);
 
 		return measurePlus;
 
